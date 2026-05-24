@@ -81,22 +81,34 @@ def ensure_dirs():
 
 
 def validate_config():
-    """检查关键配置是否缺失，返回 True/False"""
-    missing = []
-    if not DEEPSEEK_API_KEY:
-        missing.append("DEEPSEEK_API_KEY")
-    if not MINIMAX_API_KEY:
-        missing.append("MINIMAX_API_KEY")
-    if not MINIMAX_GROUP_ID:
-        missing.append("MINIMAX_GROUP_ID")
+    """检查关键配置是否缺失，返回 True/False。
+    DeepSeek 必填；MiniMax 缺失时仅警告（TTS 有 Edge TTS 回退）。
+    """
+    missing_critical = []
+    missing_optional = []
 
-    if missing:
-        print(f"[WARN]  以下环境变量未设置: {', '.join(missing)}")
+    if not DEEPSEEK_API_KEY:
+        missing_critical.append("DEEPSEEK_API_KEY")
+
+    if not MINIMAX_API_KEY:
+        missing_optional.append("MINIMAX_API_KEY")
+    if not MINIMAX_GROUP_ID:
+        missing_optional.append("MINIMAX_GROUP_ID")
+
+    if missing_critical:
+        print(f"[FAIL] 以下环境变量未设置: {', '.join(missing_critical)}")
         print(f"   请复制 .env.example 为 .env 并填入你的 API Key")
         return False
 
+    if missing_optional:
+        print(f"[WARN]  以下环境变量未设置: {', '.join(missing_optional)}")
+        print(f"   MiniMax 文生图/BGM 将不可用，TTS 将使用免费 Edge TTS")
+        print(f"   如需配图功能，请在 .env 中配置 MiniMax API Key")
+
     print("[OK] 配置检查通过")
     print(f"  DeepSeek: {DEEPSEEK_API_KEY[:8]}...{DEEPSEEK_API_KEY[-4:]}")
-    print(f"  MiniMax:  {MINIMAX_API_KEY[:10]}...{MINIMAX_API_KEY[-4:]}")
-    print(f"  GroupID:  {MINIMAX_GROUP_ID[:8]}...{MINIMAX_GROUP_ID[-4:]}")
+    if MINIMAX_API_KEY:
+        print(f"  MiniMax:  {MINIMAX_API_KEY[:10]}...{MINIMAX_API_KEY[-4:]}")
+    if MINIMAX_GROUP_ID:
+        print(f"  GroupID:  {MINIMAX_GROUP_ID[:8]}...{MINIMAX_GROUP_ID[-4:]}")
     return True

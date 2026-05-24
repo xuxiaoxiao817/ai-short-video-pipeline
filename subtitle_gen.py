@@ -13,7 +13,7 @@ from typing import Optional
 from config import (
     AUDIO_DIR, SUBTITLE_DIR, SCRIPT_DIR,
 )
-from utils import save_json, format_timestamp, slugify
+from utils import save_json, format_timestamp, slugify, to_simplified
 
 
 # 导入 faster-whisper（可选依赖）
@@ -61,12 +61,13 @@ def transcribe_audio(
 
     results = []
     for seg in segments:
+        text = to_simplified(seg.text.strip())
         results.append({
             "start": seg.start,
             "end": seg.end,
-            "text": seg.text.strip(),
+            "text": text,
         })
-        print(f"   [{seg.start:.1f}s - {seg.end:.1f}s] {seg.text.strip()}")
+        print(f"   [{seg.start:.1f}s - {seg.end:.1f}s] {text}")
 
     print(f"[OK] 转录完成，共 {len(results)} 句")
     return results
@@ -156,7 +157,7 @@ def generate_srt(segments: list[dict], output_path: Path) -> str:
     for i, seg in enumerate(segments, 1):
         start_ts = format_timestamp(seg["start"])
         end_ts = format_timestamp(seg["end"])
-        text = seg["text"].strip()
+        text = to_simplified(seg["text"].strip())
         if not text:
             continue
         lines.append(str(i))

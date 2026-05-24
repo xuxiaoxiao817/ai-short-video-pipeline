@@ -22,3 +22,6 @@ httpx>=0.25.0
 
 # Edge TTS (free TTS fallback)
 edge-tts>=6.0.0
+
+# Traditional → Simplified Chinese conversion
+opencc-python-reimplemented>=0.1.7

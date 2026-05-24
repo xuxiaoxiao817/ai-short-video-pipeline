@@ -25,7 +25,15 @@ from config import (
 from utils import slugify, load_json
 
 
-def run_pipeline(topic: str, custom_prompt: str = "", bgm_path: str = ""):
+def run_pipeline(
+    topic: str,
+    custom_prompt: str = "",
+    bgm_path: str = "",
+    skip_script: bool = False,
+    skip_tts: bool = False,
+    skip_images: bool = False,
+    skip_subtitles: bool = False,
+):
     """
     运行完整视频生成流水线
 
@@ -33,6 +41,10 @@ def run_pipeline(topic: str, custom_prompt: str = "", bgm_path: str = ""):
         topic: 视频主题
         custom_prompt: 可选的自定义脚本要求
         bgm_path: 可选的 BGM 音乐文件路径
+        skip_script: 跳过脚本生成（复用已有缓存）
+        skip_tts: 跳过配音生成
+        skip_images: 跳过配图生成
+        skip_subtitles: 跳过字幕生成
     """
     start_time = time.time()
     print("=" * 60)
@@ -60,7 +72,14 @@ def run_pipeline(topic: str, custom_prompt: str = "", bgm_path: str = ""):
 
     # 检查是否已有缓存脚本
     script_path = SCRIPT_DIR / f"{safe_name}.json"
-    if script_path.exists():
+    if skip_script and script_path.exists():
+        print(f"[FILE] 跳过脚本生成，使用缓存: {script_path}")
+        script = load_json(script_path)
+    elif skip_script:
+        print("[WARN]  --skip-script 已指定但无缓存，必须生成")
+        from script_gen import generate_script
+        script = generate_script(topic, custom_prompt or None)
+    elif script_path.exists():
         print(f"[FILE] 使用缓存脚本: {script_path}")
         script = load_json(script_path)
     else:
@@ -79,7 +98,9 @@ def run_pipeline(topic: str, custom_prompt: str = "", bgm_path: str = ""):
     print("-" * 40)
 
     audio_path = AUDIO_DIR / f"{safe_name}_full.mp3"
-    if audio_path.exists():
+    if skip_tts:
+        print(f"[FILE] 跳过配音生成")
+    elif audio_path.exists():
         print(f"[FILE] 使用缓存音频: {audio_path}")
     else:
         from tts_gen import generate_full_audio
@@ -98,7 +119,9 @@ def run_pipeline(topic: str, custom_prompt: str = "", bgm_path: str = ""):
     existing_images = sorted(IMAGE_DIR.glob(f"{safe_name}_scene_*.png"))
     expected_count = len(script["scenes"])
 
-    if len(existing_images) >= expected_count:
+    if skip_images:
+        print(f"[FILE] 跳过配图生成")
+    elif len(existing_images) >= expected_count:
         print(f"[FILE] 使用缓存图片: {len(existing_images)} 张")
     else:
         from image_gen import generate_scene_images
@@ -114,7 +137,9 @@ def run_pipeline(topic: str, custom_prompt: str = "", bgm_path: str = ""):
     print("-" * 40)
 
     srt_path = SUBTITLE_DIR / f"{safe_name}.srt"
-    if srt_path.exists():
+    if skip_subtitles:
+        print(f"[FILE] 跳过字幕生成")
+    elif srt_path.exists():
         print(f"[FILE] 使用缓存字幕: {srt_path}")
     else:
         from subtitle_gen import generate_subtitles
@@ -298,6 +323,10 @@ def main():
         topic=args.topic,
         custom_prompt=args.prompt,
         bgm_path=args.bgm,
+        skip_script=args.skip_script,
+        skip_tts=args.skip_tts,
+        skip_images=args.skip_images,
+        skip_subtitles=args.skip_subtitles,
     )
 
 
