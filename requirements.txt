@@ -1,0 +1,24 @@
+# AI Video Pipeline Dependencies
+openai>=1.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Video composition
+moviepy>=1.0.3
+
+# Subtitle generation (via Whisper)
+faster-whisper>=1.0.0
+pysubs2>=1.6.0
+
+# Image processing (Ken Burns effect)
+Pillow>=10.0.0
+numpy>=1.24.0
+
+# BGM audio processing
+pydub>=0.25.1
+
+# API async support
+httpx>=0.25.0
+
+# Edge TTS (free TTS fallback)
+edge-tts>=6.0.0
