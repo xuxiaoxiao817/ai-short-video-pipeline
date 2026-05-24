@@ -41,6 +41,18 @@ python pipeline.py --topic "什么是量子纠缠？"
 - FFmpeg（moviepy 自动附带，无需单独安装）
 - 网络连接（API 调用 + Whisper 模型下载）
 
+### Windows 终端编码
+
+Windows 终端默认 GBK 编码可能导致中文乱码。执行以下任一操作：
+```bash
+# 方法 1：运行前切换到 UTF-8
+chcp 65001
+
+# 方法 2：在 PowerShell 配置文件中设置
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+```
+或使用 Windows Terminal 等支持 UTF-8 的终端。
+
 ### API 密钥
 
 | 服务 | 用途 | 获取方式 |

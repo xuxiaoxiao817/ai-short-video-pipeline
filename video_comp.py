@@ -35,7 +35,7 @@ from config import (
     SUBTITLE_FONT_SIZE, SUBTITLE_FONT_COLOR, SUBTITLE_BG_COLOR,
     VIDEO_DIR, BGM_DIR, SCRIPT_DIR, AUDIO_DIR, IMAGE_DIR, SUBTITLE_DIR,
 )
-from utils import slugify
+from utils import slugify, to_simplified
 
 
 # ============================================================
@@ -64,30 +64,57 @@ def _find_font(size: int = 48) -> Optional[str]:
     return None
 
 
+def _wrap_text(text: str, font, max_width: int, draw) -> list[str]:
+    """将文本按 max_width 折行，返回每行字符串列表"""
+    if not text:
+        return [""]
+    # 先尝试单行
+    bbox = draw.textbbox((0, 0), text, font=font)
+    if bbox[2] - bbox[0] <= max_width:
+        return [text]
+    # 逐字添加，超宽时换行
+    lines = []
+    current = ""
+    for ch in text:
+        trial = current + ch
+        tw = draw.textbbox((0, 0), trial, font=font)[2]
+        if tw > max_width and current:
+            lines.append(current)
+            current = ch
+        else:
+            current = trial
+    if current:
+        lines.append(current)
+    return lines or [text]
+
+
 def _render_subtitle_frame(
     text: str,
     width: int = VIDEO_WIDTH,
-    height: int = 120,
     font_size: int = SUBTITLE_FONT_SIZE,
     font_color: str = "white",
     bg_color: tuple = (0, 0, 0, 160),
+    pad_x: int = 120,
+    line_spacing: int = 8,
 ) -> np.ndarray:
     """
-    用 PIL 渲染一个字幕帧，返回 numpy array (HWC, RGBA)
+    用 PIL 渲染一个字幕帧，返回 numpy array (HWC, RGBA)。
+    文本在有效宽度内居中，左右留 pad_x 边距；超长文本自动折行。
 
     Args:
         text: 字幕文本
         width: 字幕图片宽度
-        height: 字幕图片高度
         font_size: 字号
         font_color: 字体颜色
         bg_color: 背景色 (RGBA)
+        pad_x: 左右留白像素
+        line_spacing: 行间距
 
     Returns:
         numpy array 格式的 RGBA 图像
     """
-    img = Image.new("RGBA", (width, height), bg_color)
-    draw = ImageDraw.Draw(img)
+    # 简繁转换
+    text = to_simplified(text)
 
     font_path = _find_font(font_size)
     if font_path:
@@ -95,18 +122,36 @@ def _render_subtitle_frame(
     else:
         font = ImageFont.load_default()
 
-    # 计算文本位置（居中）
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_w = bbox[2] - bbox[0]
-    text_h = bbox[3] - bbox[1]
-    x = (width - text_w) // 2
-    y = (height - text_h) // 2 - 5
+    # 先在透明画布上计算折行
+    dummy = Image.new("RGBA", (width, 1), (0, 0, 0, 0))
+    draw_dummy = ImageDraw.Draw(dummy)
+    text_width = width - 2 * pad_x
+    lines = _wrap_text(text, font, text_width, draw_dummy)
 
-    # 描边效果（黑色描边，提升可读性）
+    # 计算总高度
+    line_heights = []
+    for line in lines:
+        bbox = draw_dummy.textbbox((0, 0), line, font=font)
+        line_heights.append(bbox[3] - bbox[1])
+    total_text_h = sum(line_heights) + line_spacing * (len(lines) - 1)
+    bar_height = max(total_text_h + 50, 80)  # 最小 80px，上下各 25px 内边距
+
+    # 渲染字幕条
+    img = Image.new("RGBA", (width, bar_height), bg_color)
+    draw = ImageDraw.Draw(img)
+
     stroke_color = (0, 0, 0, 200)
-    for dx, dy in [(-2, -2), (-2, 2), (2, -2), (2, 2), (0, -2), (0, 2), (-2, 0), (2, 0)]:
-        draw.text((x + dx, y + dy), text, font=font, fill=stroke_color)
-    draw.text((x, y), text, font=font, fill=font_color)
+    y_offset = (bar_height - total_text_h) // 2
+
+    for i, line in enumerate(lines):
+        lw = draw.textbbox((0, 0), line, font=font)[2]
+        x = pad_x + (text_width - lw) // 2
+        y = y_offset
+        # 描边
+        for dx, dy in [(-2, -2), (-2, 2), (2, -2), (2, 2), (0, -2), (0, 2), (-2, 0), (2, 0)]:
+            draw.text((x + dx, y + dy), line, font=font, fill=stroke_color)
+        draw.text((x, y), line, font=font, fill=font_color)
+        y_offset += line_heights[i] + line_spacing
 
     return np.array(img)
 
@@ -129,11 +174,9 @@ def _make_subtitle_clip_pil(
     Returns:
         ImageClip 对象（带透明通道）
     """
-    bar_height = 130
     bar_img = _render_subtitle_frame(
         text=text,
         width=video_size[0],
-        height=bar_height,
     )
 
     # 转为 moviepy ImageClip
@@ -142,8 +185,8 @@ def _make_subtitle_clip_pil(
 
     # 定位到底部居中
     bottom_margin = 80
-    pos_x = 0  # 全宽
-    pos_y = video_size[1] - bar_height - bottom_margin
+    pos_x = 0
+    pos_y = video_size[1] - bar_img.shape[0] - bottom_margin
     clip = clip.with_position((pos_x, pos_y))
 
     return clip
@@ -462,23 +505,25 @@ def compose_video(
         if bgm_clip.duration < total_duration:
             loops = int(total_duration / bgm_clip.duration) + 1
             bgm_clip = concatenate_audioclips([bgm_clip] * loops)
-        bgm_clip = bgm_clip.subclip(0, total_duration)
+        bgm_clip = bgm_clip.subclipped(0, total_duration) if MOVIEPY_V2 else bgm_clip.subclip(0, total_duration)
 
         # 渐入渐出
-        try:
-            from moviepy import vfx
+        if MOVIEPY_V2:
+            from moviepy.audio.fx.AudioFadeIn import AudioFadeIn
+            from moviepy.audio.fx.AudioFadeOut import AudioFadeOut
             bgm_clip = bgm_clip.with_effects([
-                vfx.AudioFadeIn(1.5),
-                vfx.AudioFadeOut(3.0),
+                AudioFadeIn(1.5),
+                AudioFadeOut(3.0),
             ])
-        except ImportError:
+        else:
             from moviepy.audio.fx.all import audio_fadein, audio_fadeout
             bgm_clip = audio_fadein(bgm_clip, 1.5)
             bgm_clip = audio_fadeout(bgm_clip, 3.0)
 
         # 调整音量
         if MOVIEPY_V2:
-            bgm_clip = bgm_clip.with_volume(bgm_volume)
+            from moviepy.audio.fx.MultiplyVolume import MultiplyVolume
+            bgm_clip = bgm_clip.with_effects([MultiplyVolume(bgm_volume)])
         else:
             bgm_clip = bgm_clip.volumex(bgm_volume)
 
@@ -604,6 +649,39 @@ def _render_outro_frame(
 # 高级接口
 # ============================================================
 
+def _estimate_timeline_fallback(
+    scenes: list[dict],
+    audio_path: str,
+) -> list[dict]:
+    """当字幕时间线 JSON 缺失时，根据场景数和音频时长估算时间线"""
+    total_duration = 10.0
+    audio_path_obj = Path(audio_path)
+    if audio_path_obj.exists():
+        try:
+            from moviepy import AudioFileClip
+            clip = AudioFileClip(str(audio_path_obj))
+            total_duration = clip.duration
+            clip.close()
+        except Exception:
+            pass
+
+    total_chars = sum(len(s.get("narration", "")) for s in scenes) or 1
+    timeline = []
+    current = 0.0
+    for i, scene in enumerate(scenes):
+        ratio = len(scene.get("narration", "")) / total_chars
+        seg_dur = max(2.0, total_duration * ratio)
+        timeline.append({
+            "index": i,
+            "narration": scene.get("narration", ""),
+            "start": current,
+            "end": current + seg_dur,
+            "duration": seg_dur,
+        })
+        current += seg_dur
+    return timeline
+
+
 def compose_from_pipeline_data(
     script: dict,
     image_dir: Path,
@@ -652,6 +730,13 @@ def compose_from_pipeline_data(
     if timeline_path.exists():
         data = json.loads(timeline_path.read_text(encoding="utf-8"))
         timeline = data.get("timeline", data.get("segments", []))
+
+    # 如果没有时间线数据，从脚本和音频时长估算
+    if not timeline and script.get("scenes"):
+        timeline = _estimate_timeline_fallback(
+            script["scenes"], str(audio_path)
+        )
+        print(f"   未找到时间线，已根据场景数估算 ({len(timeline)} 段)")
 
     return compose_video(
         script=script,
